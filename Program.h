@@ -31,4 +31,6 @@ class GeneralProgramBase : public ProgramBase {
         }
 };
 
+#define MAIN_PROGRAM(prg) int main() { prg __; ProgramBase::run(__); }
+
 #endif

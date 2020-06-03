@@ -7,7 +7,7 @@
 class Time {
     public:
         static float now() {
-            return std::chrono::time_point_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now()).time_since_epoch().count() / 1000.0f;
+            return std::chrono::high_resolution_clock::now().time_since_epoch().count();
         }
         class Timer {
             public:

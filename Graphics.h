@@ -10,6 +10,9 @@
 #define RENDERER_TYPE WindowsRenderer
 #endif
 
+
+#include "Utils.h"
+
 typedef unsigned char color_channel;
 class GraphicsBitmap {
     public:
@@ -54,6 +57,7 @@ class GraphicsBitmap {
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <string>
 class GraphicsContext {
     public:
         struct Color {
@@ -106,29 +110,101 @@ class GraphicsContext {
                 pixel(min + i, y, color);
             }
         }
-        void strokeLine(Int4 line, Color color) {
+        void strokeLine(Int4 line, Color color, int lineWidth, std::string lineCap) {
             float dx = line.end.x - line.start.x;
             float dy = line.end.y - line.start.y;
             float mag = sqrt(dx * dx + dy * dy);
             dx /= mag;
             dy /= mag;
-            for (int i = 0; i < mag; i++) {
-                setPixel((int)(line.start.x + dx * i), (int)(line.start.y + dy * i), color);
+            float n_x = -dy;
+            float n_y = dx;
+            for (int l = 0; l < lineWidth; l++) for (int i = 0; i < mag; i++) {
+                int L = l - lineWidth / 2;
+                int ox = n_x * L;
+                int oy = n_y * L;
+                setPixel((int)(line.start.x + dx * i + ox), (int)(line.start.y + dy * i + oy), color);
+            }
+            if (lineCap == "flat") return;
+            if (lineCap == "round") {
+                dx *= mag;
+                dy *= mag;
+                int radius = lineWidth / 2;
+                for (int i = 0; i < 2; i++) for (int x = 0; x < lineWidth; x++) for (int y = 0; y < lineWidth; y++) {
+                    int ax = line.start.x + dx * i;
+                    int ay = line.start.y + dy * i;
+                    int X = x - lineWidth / 2;
+                    int Y = y - lineWidth / 2;
+                    if (X * X + Y * Y < radius * radius) setPixel(ax + X, ay + Y, color);
+                }
             }
         }
         Int2 lineStart { 0, 0 };
+        std::vector<Int4> path;
+        enum TransformationType { ROTATION, TRANSLATION, SCALE };
+        struct Transformation {
+            TransformationType type;
+            float x, y;
+        };
+        std::vector<std::vector<Transformation>> transformationSaveStack;
+        std::vector<Transformation> transformationStack;
         Int2 transform(Int2 point) {
             Float2 p { (float)point.x, (float)point.y };
+            for (int i = transformationStack.size() - 1; i >= 0; i--) {
+                Transformation transformation = transformationStack[i];
+                float t_x = p.x, t_y = p.y;
+                float arg_x = transformation.x, arg_y = transformation.y;
+
+                switch (transformation.type) {
+                    case ROTATION:
+                        t_x = p.x * arg_x - p.y * arg_y;
+                        t_y = p.x * arg_y + p.y * arg_x;
+                        break;
+                    case TRANSLATION:
+                        t_x = p.x + arg_x;
+                        t_y = p.y + arg_y;
+                        break;
+                    case SCALE:
+                        t_x = p.x * arg_x;
+                        t_y = p.y * arg_y;
+                        break;
+                }
+
+                p.x = t_x;
+                p.y = t_y;
+            }
             return { (int)p.x, (int)p.y };
         }
-        std::vector<Int4> path;
+        float lineWidthFactor = 1;
     public:
         GraphicsBitmap& bitmap;
-        Color fillStyle;
+        Color fillStyle { 0, 0, 0 };
+        Color strokeStyle { 0, 0, 0 };
+        int lineWidth = 1;
+        std::string lineCap = "flat";
 
         GraphicsContext(GraphicsBitmap& target) 
             : bitmap(target) {
             
+        }
+        void save() {
+            transformationSaveStack.push_back(transformationStack);
+        }
+        void restore() {
+            if (transformationSaveStack.size() > 0) {
+                std::vector<Transformation> nStack = transformationSaveStack[transformationSaveStack.size() - 1];
+                transformationSaveStack.pop_back();
+                transformationStack = nStack;
+            }
+        }
+        void translate(int x, int y) {
+            transformationStack.push_back({ TRANSLATION, (float)x, (float)y });
+        }
+        void scale(int x, int y) {
+            lineWidthFactor *= x;
+            transformationStack.push_back({ SCALE, (float)x, (float)y });
+        }
+        void rotate(float angle) {
+            transformationStack.push_back({ ROTATION, cos(angle), sin(angle) });
         }
         void setPixel(int x, int y, Color color = WHITE) {
             Int2 p = clipPoint(transform({ x, y }));
@@ -136,6 +212,9 @@ class GraphicsContext {
         }
         void beginPath() {
             path.clear();
+        }
+        void closePath() {
+            beginPath();
         }
         void moveTo(int x, int y) {
             lineStart = transform({ x, y });
@@ -175,7 +254,7 @@ class GraphicsContext {
                     int min_ = std::min(y1, y2);
                     int max_ = std::max(y1, y2);
                     if (y2 - y1 != 0) {
-                        if (min_ < y && max_ > y) validLines.push_back(line);
+                        if (min_ <= y && max_ > y) validLines.push_back(line);
                     }
                 }
                 std::vector<int> intersections { };
@@ -185,27 +264,49 @@ class GraphicsContext {
                     int y1 = line.start.y;
                     int y2 = line.end.y;
                     int dx = x2 - x1;
-                    int dy = x1 - x2;
+                    int dy = y2 - y1;
                     if (dx == 0) {
                         intersections.push_back(x1);
                     } else {
                         float m = dy / (float)dx;
-                        float b = y1 - m * x1;
+                        int b = y1 - m * x1;
                         int x = (y - b) / m;
-                        intersections.push_back(x);
+                        if (intersections.size() == 0 || intersections[intersections.size() - 1] != x) intersections.push_back(x);
                     }
                 }
-                for (int j = 0; j < intersections.size(); j += 3) {
-                    scanline(intersections[j], intersections[j + 1], y, fillStyle);
+                if (intersections.size() >= 2) {
+                    std::sort(intersections.begin(), intersections.end(), [](int a, int b) {
+                        return a < b;
+                    });
+                    for (int j = 0; j < intersections.size(); j += 3) {
+                        scanline(intersections[j], intersections[j + 1], y, fillStyle);
+                    }
                 }
             }
+            closePath();
+        }
+        void stroke() {
+            for (Int4 line : path) {
+                strokeLine(line, strokeStyle, lineWidth * lineWidthFactor, lineCap);
+            }
+            closePath();
+        }
+        void strokeRect(int x, int y, int w, int h) {
+            beginPath();
+            rect(x, y, w, h);
+            stroke();
+        }
+        void fillRect(int x, int y, int w, int h) {
+            beginPath();
+            rect(x, y, w, h);
+            fill();
         }
         void clearRect(int x, int y, int w, int h) {
             Int2 min = clipPoint({ x, y });
             Int2 max = clipPoint({ x + w, y + h });
             int rangeX = max.x - min.x;
             int rangeY = max.y - min.y;
-            for (int i = 0; i < rangeX; i++) for (int j = 0; j < rangeY; j++) bitmap.set(i, j, 0, 0, 0, 0);
+            for (int i = 0; i < rangeX; i++) for (int j = 0; j < rangeY; j++) bitmap.set(i, j, 255, 255, 255, 255);
         }
 };
 GraphicsContext::Color GraphicsContext::WHITE = { 255, 255, 255, 255 };
@@ -223,7 +324,6 @@ class GraphicsRenderer {
 };
 
 #include <iostream>
-#include <string>
 #include <stdlib.h>
 #include <Windows.h>
 class STDRenderer : public GraphicsRenderer {
@@ -359,6 +459,8 @@ namespace WindowData {
                 PostQuitMessage(0);
                 windowClosed = true;
                 break;
+            case WM_SIZING:
+                return 0;
         }
         return DefWindowProc(handle, message, wParam, lParam);
     };
@@ -416,6 +518,8 @@ class WindowsRenderer : public GraphicsRenderer {
             windowY = (rect.bottom - windowHeight) / 2;
             MoveWindow(windowHandle, windowX, windowY, windowWidth, windowHeight, true);
             SetTimer(windowHandle, NULL, 10, NULL);
+            HWND consoleWindow = GetConsoleWindow();
+            MoveWindow(consoleWindow, 0, 0, 0, 0, true);
         }
         void setTitle(const char* title) override {
             SetWindowTextA(windowHandle, (LPCSTR)title);
@@ -463,12 +567,16 @@ class WindowsRenderer : public GraphicsRenderer {
 };
 //program types
 #include "Program.h"
+#include <string>
 class GraphicsProgramBase : public ProgramBase {
     public:
         GraphicsBitmap& screen = GraphicsBitmap(SCREEN_WIDTH, SCREEN_HEIGHT);
         RENDERER_TYPE& renderer = RENDERER_TYPE(screen);
         GraphicsProgramBase() {
             
+        }
+        void setTitle(std::string title) {
+            renderer.setTitle(title.c_str());
         }
         void internalInit() override {
             init();
