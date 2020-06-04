@@ -58,18 +58,51 @@ class GraphicsBitmap {
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <iostream>
+#define CIRCLE_PRECISION 10
 class GraphicsContext {
     public:
         struct Color {
             color_channel r = 0, g = 0, b = 0, a = 255;
         };
         static Color WHITE;
+        Color fillStyle { 0, 0, 0 };
+        Color strokeStyle { 0, 0, 0 };
+        int lineWidth = 1;
+        float globalAlpha = 1;
+        std::string lineCap = "flat";
     private:
         struct Int2 {
             int x, y;
+
+            Int2(int X, int Y) {
+                x = X;
+                y = Y;
+            }
+            Int2(int v) {
+                x = v;
+                y = v;
+            }
             static Int2& empty() {
                 Int2 p { 0, 0 };
                 return p;
+            }
+            static float dist(Int2& a, Int2& b) {
+                float dx = b.x - a.x;
+                float dy = b.y - a.y;
+                return sqrt(dx * dx + dy * dy);
+            }
+            Int2 operator+(Int2 b) {
+                return { x + b.x, y + b.y };
+            }
+            Int2 operator-(Int2 b) {
+                return { x - b.x, y - b.y };
+            }
+            Int2 operator*(Int2 b) {
+                return { x * b.x, y * b.y };
+            }
+            Int2 operator/(Int2 b) {
+                return { x / b.x, y / b.y };
             }
         };
         struct Int4 {
@@ -77,9 +110,41 @@ class GraphicsContext {
         };
         struct Float2 {
             float x, y;
+            
+            Float2(float X, float Y) {
+                x = X;
+                y = Y;
+            }
+            Float2(float v) {
+                x = v;
+                y = v;
+            }
             static Float2& empty() {
-                Float2 p { 0, 0 };
+                Float2 p { 0.0f, 0.0f };
                 return p;
+            }
+            static float dist(Float2& a, Float2& b) {
+                float dx = b.x - a.x;
+                float dy = b.y - a.y;
+                return sqrt(dx * dx + dy * dy);
+            }
+            float length() {
+                return sqrt(x * x + y * y);
+            }
+            Float2 operator+(Float2 b) {
+                return { x + b.x, y + b.y };
+            }
+            Float2 operator-(Float2 b) {
+                return { x - b.x, y - b.y };
+            }
+            Float2 operator*(Float2 b) {
+                return { x * b.x, y * b.y };
+            }
+            Float2 operator/(Float2 b) {
+                return { x / b.x, y / b.y };
+            }
+            operator Int2() {
+                return { (int)x, (int)y };
             }
         };
         struct Float4 {
@@ -98,8 +163,19 @@ class GraphicsContext {
         Int2 clipPoint(Int2 p) {
             return { clipX(p.x), clipY(p.y) };
         }
-        void pixel(int x, int y, Color color) {
+        bool invalid(int x, int y) {
+            return x < 0 || y < 0 || x > bitmap.width - 1 || y > bitmap.height - 1;
+        }
+        void directPixel(int x, int y, Color color) {
             bitmap.set(x, y, color.r, color.g, color.b, color.a);
+        }
+        void pixel(int x, int y, Color color) {
+            color_channel* current = bitmap.get(x, y);
+            if (current[3] < 10) directPixel(x, y, color);
+            float a = globalAlpha * color.a / 255.0f;
+            float a1 = 1.0f - a;
+            // std::cout << (int)color.r << "," << (int)color.g << "," << (int)color.b << "," << (int)color.a << std::endl;
+            bitmap.set(x, y, color.r * a + current[0] * a1, color.g * a + current[1] * a1, color.b * a + current[2] * a1, color.a * a + current[3] * a1);
         }
         void scanline(int min, int max, int y, Color color = WHITE) {
             if (y < 0 || y > bitmap.height - 1) return;
@@ -118,11 +194,13 @@ class GraphicsContext {
             dy /= mag;
             float n_x = -dy;
             float n_y = dx;
-            for (int l = 0; l < lineWidth; l++) for (int i = 0; i < mag; i++) {
-                int L = l - lineWidth / 2;
-                int ox = n_x * L;
-                int oy = n_y * L;
-                setPixel((int)(line.start.x + dx * i + ox), (int)(line.start.y + dy * i + oy), color);
+            for (int l = 0; l < lineWidth * 2; l++) for (int i = 0; i < mag; i++) {
+                int L = l - lineWidth;
+                float ox = n_x * L / 2.0f;
+                float oy = n_y * L / 2.0f;
+                Int2 p = { (int)(line.start.x + dx * i + ox), (int)(line.start.y + dy * i + oy) };
+                if (invalid(p.x, p.y)) continue;
+                pixel(p.x, p.y, color);
             }
             if (lineCap == "flat") return;
             if (lineCap == "round") {
@@ -134,7 +212,11 @@ class GraphicsContext {
                     int ay = line.start.y + dy * i;
                     int X = x - lineWidth / 2;
                     int Y = y - lineWidth / 2;
-                    if (X * X + Y * Y < radius * radius) setPixel(ax + X, ay + Y, color);
+                    if (X * X + Y * Y < radius * radius) {
+                        Int2 p = { ax + X, ay + Y };
+                        if (invalid(p.x, p.y)) continue;
+                        pixel(p.x, p.y, color);
+                    }
                 }
             }
         }
@@ -177,10 +259,6 @@ class GraphicsContext {
         float lineWidthFactor = 1;
     public:
         GraphicsBitmap& bitmap;
-        Color fillStyle { 0, 0, 0 };
-        Color strokeStyle { 0, 0, 0 };
-        int lineWidth = 1;
-        std::string lineCap = "flat";
 
         GraphicsContext(GraphicsBitmap& target) 
             : bitmap(target) {
@@ -207,8 +285,92 @@ class GraphicsContext {
             transformationStack.push_back({ ROTATION, cos(angle), sin(angle) });
         }
         void setPixel(int x, int y, Color color = WHITE) {
-            Int2 p = clipPoint(transform({ x, y }));
-            pixel(p.x, p.y, color);
+            Int2 p = transform({ x, y });
+            if (invalid(p.x, p.y)) return;
+            directPixel(p.x, p.y, color);
+        }
+        void drawImage(GraphicsBitmap& image, int x, int y, int w, int h) {
+            Int2 start = transform({ x, y });
+            Int2 start2 = transform({ x + w, y });
+            Int2 end = transform({ x, y + h });
+            Int2 end2 = transform({ x + w, y + h });
+            Float2 X_AXIS = { (float)(start2.x - start.x), (float)(start2.y - start.y) };
+            Float2 Y_AXIS = { (float)(end.x - start.x), (float)(end.y - start.y) };
+            float XLN = X_AXIS.length();
+            float YLN = end.y - start.y;//Y_AXIS.length();
+            X_AXIS = X_AXIS / -XLN;
+            Y_AXIS = Y_AXIS / YLN;
+            float X_START = X_AXIS.x * start.x + X_AXIS.y * start.y;
+            float Y_START = Y_AXIS.x * start.x + Y_AXIS.y * start.y;
+            //scanline fill
+            beginPath();
+            rect(x, y, w, h);
+            int minY = 10000;
+            int maxY = -10000;
+            for (Int4 line : path) {
+                int y1 = line.start.y;
+                int y2 = line.end.y;
+                int min_ = std::min(y1, y2);
+                int max_ = std::max(y1, y2);
+                if (min_ < minY) minY = min_;
+                if (max_ > maxY) maxY = max_;
+            }
+            int range = maxY - minY;
+            for (int i = 0; i < range; i++) {
+                int y = minY + i;
+                std::vector<Int4> validLines { };
+
+                for (Int4 line : path) {
+                    int y1 = line.start.y;
+                    int y2 = line.end.y;
+                    int min_ = std::min(y1, y2);
+                    int max_ = std::max(y1, y2);
+                    if (y2 - y1 != 0) {
+                        if (min_ <= y && max_ > y) validLines.push_back(line);
+                    }
+                }
+                std::vector<int> intersections { };
+                for (Int4 line : validLines) {
+                    int x1 = line.start.x;
+                    int x2 = line.end.x;
+                    int y1 = line.start.y;
+                    int y2 = line.end.y;
+                    int dx = x2 - x1;
+                    int dy = y2 - y1;
+                    if (dx == 0) {
+                        intersections.push_back(x1);
+                    } else {
+                        float m = dy / (float)dx;
+                        int b = y1 - m * x1;
+                        int x = (y - b) / m;
+                        if (intersections.size() == 0 || intersections[intersections.size() - 1] != x) intersections.push_back(x);
+                    }
+                }
+                if (intersections.size() >= 2) {
+                    std::sort(intersections.begin(), intersections.end(), [](int a, int b) {
+                        return a < b;
+                    });
+                    for (int j = 0; j < intersections.size(); j += 3) {
+                        if (y < 0 || y > bitmap.height - 1) continue;
+                        int minX = clipX(intersections[j]);
+                        int maxX = clipX(intersections[j + 1]);
+                        int range = maxX - minX;
+                        for (int X = 0; X < range; X++) {
+                            Int2 p { minX + X, y };
+                            float x_dot = (p.x * X_AXIS.x + p.y * X_AXIS.y - X_START) / XLN;//(p.x * X_AXIS.x + p.y * X_AXIS.y) / XLN;
+                            float y_dot = (p.x * Y_AXIS.x + p.y * Y_AXIS.y - Y_START) / YLN;//(p.x * Y_AXIS.x + p.y * Y_AXIS.y) / YLN;
+                            color_channel* ch = image.get(x_dot * image.width, std::min((int)(image.height - 1), (int)(y_dot * image.height + 1)));
+                            Color col { ch[0], ch[1], ch[2], ch[3] };
+                            pixel(p.x, p.y, col);
+                        }
+                    }
+                }
+            }
+            closePath();
+        }
+        Color getPixel(int x, int y) {
+            color_channel* col = bitmap.get(x, y);
+            return { col[0], col[1], col[2], col[3] };
         }
         void beginPath() {
             path.clear();
@@ -231,8 +393,24 @@ class GraphicsContext {
             lineTo(x, y + h);
             lineTo(x, y);
         }
+        void arc(int x, int y, int radius, float startAngle, float endAngle) {
+            if (abs(endAngle - startAngle) < 0.001) return;
+            std::vector<Int2> points { };
+            int dif = radius * (endAngle - startAngle) / CIRCLE_PRECISION;
+            for (int i = 0; i < dif; i++) {
+                float angle = CIRCLE_PRECISION * i / (float)radius + startAngle;
+                points.push_back({ (int)(cos(angle) * radius) + x, (int)(sin(angle) * radius) + y });
+            }
+            Int2 start = points[0];
+            moveTo(start.x, start.y);
+            for (int i = 0; i < points.size(); i++) {
+                Int2 point = points[i];
+                lineTo(point.x, point.y);
+            }
+            lineTo(start.x, start.y);
+        }
         void fill() {
-            if (path.size() <= 3) return;
+            if (path.size() < 3) return;
             int minY = 10000;
             int maxY = -10000;
             for (Int4 line : path) {
@@ -286,6 +464,7 @@ class GraphicsContext {
             closePath();
         }
         void stroke() {
+            if (path.size() == 0) return;
             for (Int4 line : path) {
                 strokeLine(line, strokeStyle, lineWidth * lineWidthFactor, lineCap);
             }
@@ -306,12 +485,13 @@ class GraphicsContext {
             Int2 max = clipPoint({ x + w, y + h });
             int rangeX = max.x - min.x;
             int rangeY = max.y - min.y;
-            for (int i = 0; i < rangeX; i++) for (int j = 0; j < rangeY; j++) bitmap.set(i, j, 255, 255, 255, 255);
+            for (int i = 0; i < rangeX; i++) for (int j = 0; j < rangeY; j++) bitmap.set(i, j, 0, 0, 0, 0);
         }
 };
 GraphicsContext::Color GraphicsContext::WHITE = { 255, 255, 255, 255 };
 
 //renderers
+#include <Windows.h>
 class GraphicsRenderer {
     public:
         GraphicsBitmap& bitmap;
@@ -319,22 +499,20 @@ class GraphicsRenderer {
             : bitmap(target) {
             
         }
-        virtual void setTitle(const char* title) = 0;
+        virtual HWND getWindowHandle() = 0;
         virtual bool render() = 0;
 };
 
 #include <iostream>
 #include <stdlib.h>
-#include <Windows.h>
 class STDRenderer : public GraphicsRenderer {
     public:
         STDRenderer(GraphicsBitmap& target) 
             : GraphicsRenderer(target) {
 
         }
-        void setTitle(const char* title) override {
-            HWND handle = GetConsoleWindow();
-            SetWindowTextA(handle, (LPCSTR)title);
+        HWND getWindowHandle() override {
+            return GetConsoleWindow();
         }
         bool render() override {
             system("CLS");
@@ -357,9 +535,8 @@ class ConsoleRenderer : public GraphicsRenderer {
             : GraphicsRenderer(target) {
 
         }
-        void setTitle(const char* title) override {
-            HWND handle = GetConsoleWindow();
-            SetWindowTextA(handle, (LPCSTR)title);
+        HWND getWindowHandle() override {
+            return GetConsoleWindow();
         }
         bool render() override {
             auto sortCols = [=](std::pair<float, short> a, std::pair<float, short> b) {
@@ -519,10 +696,10 @@ class WindowsRenderer : public GraphicsRenderer {
             MoveWindow(windowHandle, windowX, windowY, windowWidth, windowHeight, true);
             SetTimer(windowHandle, NULL, 10, NULL);
             HWND consoleWindow = GetConsoleWindow();
-            MoveWindow(consoleWindow, 0, 0, 0, 0, true);
+            // MoveWindow(consoleWindow, 0, 0, 0, 0, true);
         }
-        void setTitle(const char* title) override {
-            SetWindowTextA(windowHandle, (LPCSTR)title);
+        HWND getWindowHandle() {
+            return windowHandle;
         }
         bool render() override {
 
@@ -575,8 +752,20 @@ class GraphicsProgramBase : public ProgramBase {
         GraphicsProgramBase() {
             
         }
+        int mouseX() {
+            POINT mouse;
+            GetCursorPos(&mouse);
+            ScreenToClient(renderer.getWindowHandle(), &mouse);
+            return mouse.x;
+        }
+        int mouseY() {
+            POINT mouse;
+            GetCursorPos(&mouse);
+            ScreenToClient(renderer.getWindowHandle(), &mouse);
+            return mouse.y;
+        }
         void setTitle(std::string title) {
-            renderer.setTitle(title.c_str());
+            SetWindowTextA(renderer.getWindowHandle(), (LPCSTR)title.c_str());
         }
         void internalInit() override {
             init();
