@@ -290,6 +290,7 @@ class GraphicsContext {
             directPixel(p.x, p.y, color);
         }
         void drawImage(GraphicsBitmap& image, int x, int y, int w, int h) {
+            if (w == 0 || h == 0) return;
             Int2 start = transform({ x, y });
             Int2 start2 = transform({ x + w, y });
             Int2 end = transform({ x, y + h });
@@ -297,7 +298,7 @@ class GraphicsContext {
             Float2 X_AXIS = { (float)(start2.x - start.x), (float)(start2.y - start.y) };
             Float2 Y_AXIS = { (float)(end.x - start.x), (float)(end.y - start.y) };
             float XLN = X_AXIS.length();
-            float YLN = end.y - start.y;//Y_AXIS.length();
+            float YLN = end.y - start.y;
             X_AXIS = X_AXIS / -XLN;
             Y_AXIS = Y_AXIS / YLN;
             float X_START = X_AXIS.x * start.x + X_AXIS.y * start.y;
@@ -357,9 +358,9 @@ class GraphicsContext {
                         int range = maxX - minX;
                         for (int X = 0; X < range; X++) {
                             Int2 p { minX + X, y };
-                            float x_dot = (p.x * X_AXIS.x + p.y * X_AXIS.y - X_START) / XLN;//(p.x * X_AXIS.x + p.y * X_AXIS.y) / XLN;
-                            float y_dot = (p.x * Y_AXIS.x + p.y * Y_AXIS.y - Y_START) / YLN;//(p.x * Y_AXIS.x + p.y * Y_AXIS.y) / YLN;
-                            color_channel* ch = image.get(x_dot * image.width, std::min((int)(image.height - 1), (int)(y_dot * image.height + 1)));
+                            float x_dot = (p.x * X_AXIS.x + p.y * X_AXIS.y - X_START) / XLN;
+                            float y_dot = (p.x * Y_AXIS.x + p.y * Y_AXIS.y - Y_START) / YLN;
+                            color_channel* ch = image.get((int)(x_dot * image.width), clamp((int)(y_dot * image.height + 1), 1, image.height - 1));
                             Color col { ch[0], ch[1], ch[2], ch[3] };
                             pixel(p.x, p.y, col);
                         }
@@ -387,6 +388,7 @@ class GraphicsContext {
             lineStart = transform({ x, y });
         }
         void rect(int x, int y, int w, int h) {
+            if (w == 0 || h == 0) return;
             moveTo(x, y);
             lineTo(x + w, y);
             lineTo(x + w, y + h);
@@ -394,6 +396,7 @@ class GraphicsContext {
             lineTo(x, y);
         }
         void arc(int x, int y, int radius, float startAngle, float endAngle) {
+            if (radius == 0) return;
             if (abs(endAngle - startAngle) < 0.001) return;
             std::vector<Int2> points { };
             int dif = radius * (endAngle - startAngle) / CIRCLE_PRECISION;
@@ -696,7 +699,7 @@ class WindowsRenderer : public GraphicsRenderer {
             MoveWindow(windowHandle, windowX, windowY, windowWidth, windowHeight, true);
             SetTimer(windowHandle, NULL, 10, NULL);
             HWND consoleWindow = GetConsoleWindow();
-            // MoveWindow(consoleWindow, 0, 0, 0, 0, true);
+            MoveWindow(consoleWindow, 0, 0, 0, 0, true);
         }
         HWND getWindowHandle() {
             return windowHandle;
