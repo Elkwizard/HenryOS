@@ -59,11 +59,17 @@ class GraphicsBitmap {
 #include <cmath>
 #include <string>
 #include <iostream>
-#define CIRCLE_PRECISION 10
+#define CIRCLE_PRECISION 8
 class GraphicsContext {
     public:
         struct Color {
             color_channel r = 0, g = 0, b = 0, a = 255;
+            Color(int R, int G, int B, int A = 255) {
+                r = (color_channel)clamp(R, 0, 255);
+                g = (color_channel)clamp(G, 0, 255);
+                b = (color_channel)clamp(B, 0, 255);
+                a = (color_channel)clamp(A, 0, 255);
+            }
         };
         static Color WHITE;
         Color fillStyle { 0, 0, 0 };
@@ -306,8 +312,30 @@ class GraphicsContext {
             //scanline fill
             beginPath();
             rect(x, y, w, h);
+            if (X_AXIS.y == 0 && Y_AXIS.x == 0) {
+                float r_w = image.width / (float)w;
+                float r_h = image.height / (float)h;
+                int cx = clipX(x);
+                int mx = clipX(x + w);
+                int cy = clipY(y);
+                int my = clipY(y + h);
+                int rx = mx - cx;
+                int ry = my - cy;
+                int dx = x - cx;
+                int dy = y - cy;
+                // if (mx - cx != 0 && my - cy != 0) 
+                for (int i = 0; i < rx; i++) for (int j = 0; j < ry; j++) {
+                    int ax = (i + dx) * r_w;
+                    int ay = (j + dy) * r_h;
+                    if (ax < 0 || ay < 0 || ax > image.width - 1 || ay > image.height - 1) continue;
+                    color_channel* ch = image.get(ax, ay);
+                    pixel(cx + i, cy + j, { ch[0], ch[1], ch[2], ch[3] });
+                }
+                return;
+            }
             int minY = 10000;
             int maxY = -10000;
+            std::vector<Int4> r_path { };
             for (Int4 line : path) {
                 int y1 = line.start.y;
                 int y2 = line.end.y;
@@ -315,7 +343,9 @@ class GraphicsContext {
                 int max_ = std::max(y1, y2);
                 if (min_ < minY) minY = min_;
                 if (max_ > maxY) maxY = max_;
+                if (y2 - y1 != 0) r_path.push_back(line);
             }
+            path = r_path;
             int range = maxY - minY;
             for (int i = 0; i < range; i++) {
                 int y = minY + i;
@@ -358,9 +388,12 @@ class GraphicsContext {
                         int range = maxX - minX;
                         for (int X = 0; X < range; X++) {
                             Int2 p { minX + X, y };
-                            float x_dot = (p.x * X_AXIS.x + p.y * X_AXIS.y - X_START) / XLN;
+                            float x_dot = (p.x * X_AXIS.x + p.y * X_AXIS.y - X_START) / -XLN;
                             float y_dot = (p.x * Y_AXIS.x + p.y * Y_AXIS.y - Y_START) / YLN;
-                            color_channel* ch = image.get((int)(x_dot * image.width), clamp((int)(y_dot * image.height + 1), 1, image.height - 1));
+                            color_channel* ch = image.get(
+                                clamp((int)(x_dot * image.width + 1), 1, image.width - 1), 
+                                clamp((int)(y_dot * image.height + 1), 1, image.height - 1)
+                            );
                             Color col { ch[0], ch[1], ch[2], ch[3] };
                             pixel(p.x, p.y, col);
                         }
@@ -399,9 +432,10 @@ class GraphicsContext {
             if (radius == 0) return;
             if (abs(endAngle - startAngle) < 0.001) return;
             std::vector<Int2> points { };
-            int dif = radius * (endAngle - startAngle) / CIRCLE_PRECISION;
+            float prec = radius / CIRCLE_PRECISION;
+            int dif = radius * (endAngle - startAngle) / prec;
             for (int i = 0; i < dif; i++) {
-                float angle = CIRCLE_PRECISION * i / (float)radius + startAngle;
+                float angle = prec * i / (float)radius + startAngle;
                 points.push_back({ (int)(cos(angle) * radius) + x, (int)(sin(angle) * radius) + y });
             }
             Int2 start = points[0];
@@ -490,11 +524,20 @@ class GraphicsContext {
             int rangeY = max.y - min.y;
             for (int i = 0; i < rangeX; i++) for (int j = 0; j < rangeY; j++) bitmap.set(i, j, 0, 0, 0, 0);
         }
+        void shader(Color shade(int, int), int x, int y, int w, int h) {
+            for (int i = 0; i < w; i++) for (int j = 0; j < h; j++) {
+                if (!invalid(x + i, y + j)) {
+                    Color col = shade(x + i, y + j);
+                    bitmap.set(x + i, y + j, col.r, col.g, col.b, col.a);
+                }
+            }
+        }
 };
 GraphicsContext::Color GraphicsContext::WHITE = { 255, 255, 255, 255 };
 
 //renderers
-#include <Windows.h>
+
+#include "WindowsImport.h"
 class GraphicsRenderer {
     public:
         GraphicsBitmap& bitmap;
@@ -630,6 +673,9 @@ class ConsoleRenderer : public GraphicsRenderer {
 #pragma comment(lib, "User32.lib")
 #pragma comment(lib, "Gdi32.lib")
 
+#include "ScreenSetup.h"
+
+
 namespace WindowData {
     RECT screen { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT };
     bool windowClosed = false;
@@ -668,6 +714,7 @@ namespace WindowData {
         
         ShowWindow(myWindow, 1);
         
+
         return myWindow;
     }
     bool runWindow(HWND windowHandle) {
@@ -682,15 +729,15 @@ namespace WindowData {
 class WindowsRenderer : public GraphicsRenderer {
     private:
         HWND windowHandle;
-        // int frame = 0;
     public:
         WindowsRenderer(GraphicsBitmap& target)
             : GraphicsRenderer(target) {
             windowHandle = WindowData::createWindow("Graphical Window");
+
             int windowX = 0;
             int windowY = 0;
-            int windowWidth = WindowData::screen.right + 10;
-            int windowHeight = WindowData::screen.bottom + 38;
+            int windowWidth = WindowData::screen.right * PIXEL_SIZE + 10;
+            int windowHeight = WindowData::screen.bottom * PIXEL_SIZE + 38;
             HWND fullScreen = GetDesktopWindow();
             RECT rect { };
             GetWindowRect(fullScreen, &rect);
@@ -711,10 +758,6 @@ class WindowsRenderer : public GraphicsRenderer {
             PAINTSTRUCT painter;
             HDC deviceContext = BeginPaint(windowHandle, &painter);
 
-            // frame++;
-            // RECT rect { frame, 0, frame + 100, 100 };
-            // FillRect(deviceContext, &rect, CreateSolidBrush(RGB(255, 0, frame)));
-
             //create image data array
             int len = bitmap.width * bitmap.height * 4;
             BYTE* bmprgb = new BYTE[len];
@@ -733,7 +776,7 @@ class WindowsRenderer : public GraphicsRenderer {
             SelectObject(src, bmp);
 
             //move to screen
-            BitBlt(deviceContext, 0, 0, bitmap.width, bitmap.height, src, 0, 0, SRCCOPY);
+            StretchBlt(deviceContext, 0, 0, bitmap.width * PIXEL_SIZE, bitmap.height * PIXEL_SIZE, src, 0, 0, bitmap.width, bitmap.height, SRCCOPY);
 
             //deallocate
             DeleteObject(bmp);
@@ -754,18 +797,6 @@ class GraphicsProgramBase : public ProgramBase {
         RENDERER_TYPE& renderer = RENDERER_TYPE(screen);
         GraphicsProgramBase() {
             
-        }
-        int mouseX() {
-            POINT mouse;
-            GetCursorPos(&mouse);
-            ScreenToClient(renderer.getWindowHandle(), &mouse);
-            return mouse.x;
-        }
-        int mouseY() {
-            POINT mouse;
-            GetCursorPos(&mouse);
-            ScreenToClient(renderer.getWindowHandle(), &mouse);
-            return mouse.y;
         }
         void setTitle(std::string title) {
             SetWindowTextA(renderer.getWindowHandle(), (LPCSTR)title.c_str());

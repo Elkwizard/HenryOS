@@ -2,4 +2,6 @@
 #include "Math.h"
 #include "Utils.h"
 #include "Program.h"
+#include "ScreenSetup.h"
 #include "Graphics.h"
+#include "Input.h"

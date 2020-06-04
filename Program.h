@@ -2,6 +2,7 @@
 #define PROGRAM_INCLUDE
 
 #include "Time.h"
+#include "Input.h"
 class ProgramBase {
     public:
         virtual void init() = 0;
@@ -10,10 +11,13 @@ class ProgramBase {
         virtual bool internalUpdate(float t = 16.666f) = 0;
         static void run(ProgramBase& program) {
             program.internalInit();
+            Mouse.init();
             float delta = 16.666f;
             while (true) {
                 Time::Timer t;
                 t.start();
+                Mouse.update();
+                Keyboard.update();
                 if (!program.internalUpdate(delta)) break;
                 delta = t.end();
                 Time::sleep(16);
