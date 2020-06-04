@@ -11,6 +11,8 @@ class ProgramBase {
         virtual bool internalUpdate(float t = 16.666f) = 0;
         static void run(ProgramBase& program) {
             program.internalInit();
+            Mouse.initKeyCounts();
+            Keyboard.initKeyCounts();
             Mouse.init();
             float delta = 16.666f;
             while (true) {
