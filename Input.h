@@ -4,7 +4,7 @@
 #include <map>
 #include <string>
 #include "ScreenSetup.h"
-#include "WindowsImport.h"
+#include "Windows.h"
 class InputHandler {
     private:
         std::map<std::string, short> keymap {

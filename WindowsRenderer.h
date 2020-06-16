@@ -4,12 +4,12 @@
 #include <windows.h>
 #include <gdiplus.h>
 #include <vector>
+#include <string>
 #pragma comment(lib, "User32.lib")
 #pragma comment(lib, "Gdi32.lib")
 #pragma comment(lib, "Gdiplus.lib")
 
 namespace Window {
-
     class Renderer {
         public:
             struct Point {
@@ -102,18 +102,25 @@ namespace Window {
     int width, height;
     Renderer renderer;
 
-    typedef void (*RenderRequest) ();
+    typedef void (*RenderRequest) (void* context);
 
-    std::vector<RenderRequest> requests;
+    std::vector<std::pair<RenderRequest, void*>> requests;
+    std::vector<std::pair<RenderRequest, void*>> pRequests;
 
-    void requestRender(RenderRequest r) {
-        requests.push_back(r);
+    void requestRender(RenderRequest r, void* context) {
+        requests.push_back({ r, context });
+    }
+    void pRequestRender(RenderRequest r, void* context) {
+        pRequests.push_back({ r, context });
     }
     bool render() {
-        for (RenderRequest r : requests) {
-            r();
+        for (auto r : pRequests) {
+            r.first(r.second);
         }
-        if (requests.size() == 0) return false;
+        for (auto r : requests) {
+            r.first(r.second);
+        }
+        if (requests.size() == 0 && pRequests.size() == 0) return false;
         requests.clear();
         return true;
     }
@@ -195,6 +202,9 @@ namespace Window {
         //keep updating
         SetTimer(handle, NULL, 1000 / 60, NULL);
         return handle;
+    }
+    void setTitle(std::string title) {
+        SetWindowTextA(handle, (LPCSTR)title.c_str());
     }
     bool run() {
         windowFrame++;
