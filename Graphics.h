@@ -14,6 +14,7 @@
 #include "Utils.h"
 
 typedef unsigned char color_channel;
+#include <vector>
 class GraphicsBitmap {
     public:
         int width;
@@ -54,7 +55,6 @@ class GraphicsBitmap {
 };
 
 //context
-#include <vector>
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -322,8 +322,7 @@ class GraphicsContext {
                 int rx = mx - cx;
                 int ry = my - cy;
                 int dx = x - cx;
-                int dy = y - cy;
-                // if (mx - cx != 0 && my - cy != 0) 
+                int dy = y - cy; 
                 for (int i = 0; i < rx; i++) for (int j = 0; j < ry; j++) {
                     int ax = (i + dx) * r_w;
                     int ay = (j + dy) * r_h;
@@ -391,7 +390,7 @@ class GraphicsContext {
                             float x_dot = (p.x * X_AXIS.x + p.y * X_AXIS.y - X_START) / -XLN;
                             float y_dot = (p.x * Y_AXIS.x + p.y * Y_AXIS.y - Y_START) / YLN;
                             color_channel* ch = image.get(
-                                clamp((int)(x_dot * image.width + 1), 1, image.width - 1), 
+                                clamp((int)(x_dot * image.width + 1), 1, image.width - 1),
                                 clamp((int)(y_dot * image.height + 1), 1, image.height - 1)
                             );
                             Color col { ch[0], ch[1], ch[2], ch[3] };
@@ -516,6 +515,26 @@ class GraphicsContext {
             beginPath();
             rect(x, y, w, h);
             fill();
+        }
+        void fillCircle(int x, int y, int r) {
+            int w = r * 2;
+            if (x + r < 0 || y + r < 0 || x - r > bitmap.width - 1 || y - r > bitmap.height - 1) return;
+            for (int i = 0; i < w; i++) {
+                int ax = i - r;
+                int Ax = x + ax;
+                if (Ax >= 0 && Ax < bitmap.width) for (int j = 0; j < w; j++) {
+                    int ay = j - r;
+                    if (ax * ax + ay * ay < r * r) {
+                        int Ay = y + ay;
+                        if (Ay >= 0 && Ay < bitmap.height) pixel(Ax, Ay, fillStyle);
+                    }
+                }
+            }
+        }
+        void strokeCircle(int x, int y, int r) {
+            beginPath();
+            arc(x, y, r, 0, 6.28f);
+            stroke();
         }
         void clearRect(int x, int y, int w, int h) {
             Int2 min = clipPoint({ x, y });

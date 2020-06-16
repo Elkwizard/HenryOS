@@ -33,11 +33,15 @@ class Random {
     public:
         static float seed;
         static float seedRand(float seed) {
-            seed += 10000.0f;
+            seed += 10.0f;
             float a = fmod(seed * 6.12849, 8.7890975);
             float b = fmod(a * 256783945.4758903, 238462.567890);
             float r = fmod(a * b, 1.0f);
             return r;
+        }
+        static float random() {
+            Random::seed++;
+            return seedRand(Random::seed);
         }
         static float noiseTCorrect(float t) {
             return Interpolation::smoothT(t);
